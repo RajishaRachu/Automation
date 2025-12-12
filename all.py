@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import urllib3
 import shutil
+import pandas as pd
 
 http = urllib3.PoolManager(timeout=urllib3.util.timeout.Timeout(connect=6000, read=6000))
 
@@ -29,12 +30,20 @@ prefs = {
     "download.default_directory": download_dir,  # Set your download directory
     "download.prompt_for_download": False,
     "download.directory_upgrade": True,
-    "safebrowsing.enabled": True,
+    "safebrowsing.enabled": False,
+
 }
 chrome_options.add_experimental_option("prefs", prefs)
 chrome_options.add_argument("--disable-extensions")  # Disable extensions for better performance
 chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration (optional)
 chrome_options.add_argument("--no-sandbox")  # Disable the sandbox mode (if required)
+chrome_options.add_argument("--disable-web-security")  # Disable web security
+chrome_options.add_argument("--disable-features=IsolateOrigins,site-per-process")  # Disable site isolation
+chrome_options.add_argument("--disable-features=CertificateTransparency")
+
+
+
+
 
 # Set custom timeouts for network requests
 chrome_options.add_argument("--timeout=600000")  # Allow 166+ hours for network requests (for large downloads)
@@ -48,10 +57,10 @@ driver = webdriver.Chrome(service=service, options=chrome_options)
 driver.set_page_load_timeout(600)  # Timeout set to 10 minutes for page loads
 driver.set_script_timeout(600)  # Timeout set to 10 minutes for scripts
 
-#driver.command_executor.set_timeout(6000)  # Timeout set to 100 minutes for commands
+driver.command_executor.set_timeout(6000)  # Timeout set to 100 minutes for commands
 
 # Open the login page
-driver.get("http://172.27.1.158:9090/HCRISWeb/login.do")
+driver.get("https://costreport.ontash.org/HCRISWeb/login.do")
 
 # Wait for the login page to load
 time.sleep(2)
@@ -70,95 +79,147 @@ login_button.click()
 
 # Wait for the next page to load after login (adjust if necessary)
 time.sleep(5)
+def read_excel(file_path):
+    df=pd.read_excel(file_path)
+     # Convert 'Fiscal Year' column to datetime and then to MM/DD/YYYY format
+    df['Fiscal Year'] = pd.to_datetime(df['Fiscal Year'], errors='coerce').dt.date  # Remove time part
+    df['Fiscal Year'] = df['Fiscal Year'].apply(lambda x: x.strftime('%m/%d/%Y'))  # Format as MM/DD/YYYY
+    provider_fiscal_list=df[['Provider Number','Fiscal Year']].values.tolist()
+    return provider_fiscal_list
 
 # Now that you're logged in, navigate to the target page
-driver.get("http://172.27.1.158:9090/HCRISWeb/summary.do?providerNumber=070025")
+#driver.get("http://172.27.1.158:9090/HCRISWeb/summary.do?providerNumber=070025")
 
-# Function to find record number for a specific provider number and fiscal year
-def find_record_numbers(provider_number, fiscal_year):
-    # Find all rows in the table
-    rows = driver.find_elements(By.XPATH, "//table[@id='data']//tbody//tr")
+# # Function to find record number for a specific provider number and fiscal year
+# def find_record_numbers(provider_number, fiscal_year):
+#     # Find all rows in the table
+#     rows = driver.find_elements(By.XPATH, "//table[@id='data']//tbody//tr")
     
-    # Loop through the rows and search for matching provider number and fiscal year
-    record_numbers = []
+#     # Loop through the rows and search for matching provider number and fiscal year
+#     record_numbers = []
 
-    for row in rows:
-        provider = row.find_element(By.XPATH, ".//td[1]").text  # Provider Number is in the first column
-        fiscal = row.find_element(By.XPATH, ".//td[3]").text  # Fiscal Year is in the third column
+#     for row in rows:
+#         provider = row.find_element(By.XPATH, ".//td[1]").text  # Provider Number is in the first column
+#         fiscal = row.find_element(By.XPATH, ".//td[3]").text  # Fiscal Year is in the third column
         
-        if provider == provider_number and fiscal == fiscal_year:
-            # If we find the matching row, get the Record Number from the second column
-            record_number = row.find_element(By.XPATH, ".//td[2]").text
+#         if provider == provider_number and fiscal == fiscal_year:
+#             # If we find the matching row, get the Record Number from the second column
+#             record_number = row.find_element(By.XPATH, ".//td[2]").text
 
-            last_cell_value = row.find_elements(By.TAG_NAME, "td")[-1].text
-            print(last_cell_value)
+#             last_cell_value = row.find_elements(By.TAG_NAME, "td")[-1].text
+#             print(last_cell_value)
 
-            zip_link=row.find_element(By.XPATH, ".//td[6]/a").get_attribute("href")
-            record_numbers.append({
-                'record_number': record_number,
-                'last_cell_value': last_cell_value,
-                'link':zip_link  # Add the last cell value to the list
-            })
-    return record_numbers
+#             zip_link=row.find_element(By.XPATH, ".//td[6]/a").get_attribute("href")
+#             record_numbers.append({
+#                 'record_number': record_number,
+#                 'last_cell_value': last_cell_value,
+#                 'link':zip_link  # Add the last cell value to the list
+#             })
+#     return record_numbers
+
+def download_worksheet(driver,provider_number, fiscal_year):
+    print(provider_number,fiscal_year)
+    driver.get(f"https://costreport.ontash.org/HCRISWeb/summary.do?providerNumber={provider_number}")
+    rows = driver.find_elements(By.XPATH, "//table[@id='data']//tbody//tr")
+    print("Starting Download - Provider:", provider_number, "Fiscal Year:", fiscal_year)
+    try:
+        version_suffix=0
+        for row in rows:
+            columns = row.find_elements(By.TAG_NAME, "td")
+            provider = columns[0].text
+            fiscal = columns[2].text
+
+            #print(provider, fiscal)
+
+            if provider == provider_number and fiscal == fiscal_year:
+                print("Found matching row:")
+                link = columns[5].find_element(By.TAG_NAME, "a")
+
+                # create a new folder with name 
+                version = columns[6].text
+                record_number = columns[1].text
+                print("version", version)
+                folder_name = os.path.join(f"{provider_number}_{fiscal_year.replace('/', '-')}", f"HCRIS_{provider_number}_{fiscal_year.replace('/', '-')}_Version_{version}")
+                folder_path = os.path.join(os.getcwd(), folder_name)
+                if not os.path.exists(folder_path):
+                    os.makedirs(folder_path)
+                else:                
+                    version_suffix += 1
+                    folder_name = os.path.join(f"{provider_number}_{fiscal_year.replace('/', '-')}", f"HCRIS_{provider_number}_{fiscal_year.replace('/', '-')}_Version_{version}({version_suffix})")
+                    folder_path = os.path.join(os.getcwd(), folder_name)
+                    os.makedirs(folder_path)
+
+                try:
+                    link.click()
+                except Exception as e:
+                    print(f"Time out but we'll ignore it: {e}")
+                    time.sleep(5)
+                    print("Retrying to click the link...")
+                    continue
+
+
+                time.sleep(2)
+
+                ok_button = WebDriverWait(driver, 6000).until(
+                    EC.element_to_be_clickable((By.ID, "okbutton"))
+                )
+
+                # move the downloaded file to the folder with version name
+                file_name = os.listdir(download_dir)[0]
+                source_file = os.path.join(download_dir, file_name)
+                dest_file = os.path.join(folder_path, file_name)
+
+                
+
+                shutil.move(source_file, dest_file)
+                
+                time.sleep(2)
+
+                okClicked = False
+                while not okClicked:
+                    try:
+                        ok_button.click()
+                        okClicked = True
+                    except Exception as e:
+                        print(f"Time out but we'll ignore it: {e}")
+                        time.sleep(5)
+            
+                        continue
+            else:
+                if(f"{provider_number}_{fiscal_year}" not in no_sheet):
+                    no_sheet.append(f"{provider_number}_{fiscal_year}")
+                
+
+        return f"Download completed for Provider: {provider_number}, Fiscal Year: {fiscal_year}"
+
+    except Exception as e:
+        print("error")
+        print(f"An error occurred: {e}")
+        #time.sleep(1000)
+
+    print("Download worksheet over")
+
+
+excel_file_path="D:\\Automation\\allWorkBook\\sample3.xlsx"
+no_sheet=[]
+
+provider_fiscal_list=read_excel(excel_file_path)
+print(provider_fiscal_list)
+for provider_number,fiscal_year in provider_fiscal_list:
+    completed_message=download_worksheet(driver,str(provider_number).zfill(6), str(fiscal_year).strip())
+    print("complete",completed_message)
+
+print(no_sheet)
 
 # Example: Provider Number = "100122" and Fiscal Year = "03/31/2021"
-provider_number = "070025"
-fiscal_year = "09/30/1998"
+# provider_number = "070025"
+# fiscal_year = "09/30/1998"
 
-rows = driver.find_elements(By.XPATH, "//table[@id='data']//tbody//tr")
+
+
 #columns = rows[0].find_elements(By.TAG_NAME, "td")
 
-print("start")
-try:
-    for row in rows:
-        columns = row.find_elements(By.TAG_NAME, "td")
-        provider = columns[0].text
-        fiscal = columns[2].text
 
-        #print(provider, fiscal)
-
-        if provider == provider_number and fiscal == fiscal_year:
-            print("Found matching row:")
-            link = columns[5].find_element(By.TAG_NAME, "a")
-
-            # create a new folder with name 
-            version = columns[6].text
-            print("version", version)
-            folder_name = os.path.join(f"{provider_number}_{fiscal_year.replace('/', '-')}", f"{version}")
-            folder_path = os.path.join(os.getcwd(), folder_name)
-            if not os.path.exists(folder_path):
-                os.makedirs(folder_path)
-
-            try:
-                link.click()
-            except Exception as e:
-                print(f"Time out but we'll ignore it: {e}")
-                continue
-
-
-            time.sleep(2)
-
-            ok_button = WebDriverWait(driver, 6000).until(
-                EC.element_to_be_clickable((By.ID, "okbutton"))
-            )
-
-            # move the downloaded file to the folder with version name
-            file_name = os.listdir(download_dir)[0]
-            source_file = os.path.join(download_dir, file_name)
-            dest_file = os.path.join(folder_path, file_name)
-
-            
-
-            shutil.move(source_file, dest_file)
-            
-            time.sleep(2)
-
-            ok_button.click()
-except Exception as e:
-    print("error")
-    print(f"An error occurred: {e}")
-
-print("over")
 
 time.sleep(1000)
 
