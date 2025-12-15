@@ -114,11 +114,10 @@ def download_worksheet(driver,provider_number, fiscal_year):
             columns = row.find_elements(By.TAG_NAME, "td")
             provider = columns[0].text
             fiscal = columns[2].text
-            #version=columns[6].text
 
             #print(provider, fiscal)
 
-            if provider == provider_number and fiscal == fiscal_year :
+            if provider == provider_number and fiscal == fiscal_year:
                 print("Found matching row:")
                 link = columns[5].find_element(By.TAG_NAME, "a")
 
@@ -182,6 +181,7 @@ def download_worksheet(driver,provider_number, fiscal_year):
                     except Exception as e:
                         print(f"Time out but we'll ignore it: {e}")
                         time.sleep(5)
+
                         continue
             else:
                 if(f"{provider_number}_{fiscal_year}" not in no_sheet):
@@ -207,7 +207,7 @@ def delete_all_files(directory):
             os.remove(file_path)  # Delete the file
 
 
-excel_file_path="//home/user/rajisha/issue.xlsx"
+excel_file_path="//home/user/rajisha/sample6.xlsx"
 no_sheet=[]
 
 # delete_all_files(download_dir)
@@ -215,8 +215,8 @@ no_sheet=[]
 provider_fiscal_list=read_excel(excel_file_path)
 print(provider_fiscal_list)
 
-for provider_number,fiscal_year,version in provider_fiscal_list:
-    completed_message=download_worksheet(driver,str(provider_number).zfill(6), str(fiscal_year).strip(),str(version))
+for provider_number,fiscal_year in provider_fiscal_list:
+    completed_message=download_worksheet(driver,str(provider_number).zfill(6), str(fiscal_year).strip())
     print("complete",completed_message)
 
 #print(no_sheet)
