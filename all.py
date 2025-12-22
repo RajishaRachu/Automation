@@ -207,7 +207,7 @@ def delete_all_files(directory):
             os.remove(file_path)  # Delete the file
 
 
-excel_file_path="//home/user/rajisha/sample6.xlsx"
+excel_file_path="/home/user/rajisha/sample7.xlsx"
 no_sheet=[]
 
 # delete_all_files(download_dir)
